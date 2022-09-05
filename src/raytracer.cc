@@ -11,7 +11,7 @@
 #include <opencv2/core.hpp>
 #include <opencv2/highgui.hpp>
 
-constexpr auto WINDOW_SIZE = 600;
+constexpr auto WINDOW_SIZE = 1200;
 
 class WindowWithBuffer {
   std::string name_;
@@ -38,7 +38,7 @@ using Vector = Eigen::Vector3f;
 
 struct Ray {
   Point origin;
-  Vector direction;
+  Vector direction; // TODO: Normal?
 };
 
 class Normal {
@@ -66,6 +66,7 @@ Ray bounceRay(const Ray &ray, const Point &location, const Normal &normal) {
 struct Hit {
   Point location;
   Normal normal;
+  float distance;
 };
 
 std::vector<float> positiveSolutionsForQuadratic(float a_2, float a_1,
@@ -91,6 +92,31 @@ std::vector<float> positiveSolutionsForQuadratic(float a_2, float a_1,
   return solutions;
 }
 
+struct Plane {
+  Point origin;
+  Normal normal;
+};
+
+std::optional<Hit> getHit(const Ray &ray, const Plane &plane) {
+  const auto &oR = ray.origin;
+  const auto &dR = ray.direction;
+  const auto &oP = plane.origin;
+  const auto &nP = plane.normal;
+
+  const auto denom = dR.dot(nP.get());
+  if (denom == 0.0) {
+    return {};
+  }
+
+  const auto t = (oP - oR).dot(nP.get()) / denom;
+  if (t <= 0.0) {
+    return {};
+  }
+
+  return Hit{
+      .location = oR + t * dR, .normal = nP, .distance = (t * dR).norm()};
+}
+
 std::optional<Hit> getHit(const Ray &ray,
                           const std::tuple<Point, float> &sphere) {
   const auto &[oS, rS] = sphere; // Origin and radius of the sphere
@@ -110,10 +136,12 @@ std::optional<Hit> getHit(const Ray &ray,
   const auto t = *std::min_element(solution.begin(), solution.end());
   auto location = Point{oR + t * dR};
   auto normal = Normal(location - oS);
-  return Hit{std::move(location), std::move(normal)};
+  return Hit{std::move(location), std::move(normal), (t * dR).norm()};
 }
 
-const auto SPHERES = std::array{std::make_tuple(Point{0.0, 7.0, 0.0}, 1.f),
+const auto PLANES = std::array{Plane{{0, 0, -10}, Normal{{0, 1, 10}}}};
+
+const auto SPHERES = std::array{std::make_tuple(Point{-0.5, 7.0, 0.0}, 1.f),
                                 std::make_tuple(Point{2.5, 7.0, 0.0}, 1.f),
                                 std::make_tuple(Point{0.0, 7.0, 3.0}, 1.f),
                                 std::make_tuple(Point{-2.0, 6.0, -2.0}, 1.f)};
@@ -127,13 +155,27 @@ cv::Vec3b castRay(Ray ray, int bouncesLeft = MAX_BOUNCES) {
     return defaultColor;
   }
 
-  for (const auto &sphere : SPHERES) {
-    if (const auto hit = getHit(ray, sphere)) {
-      const auto &[location, normal] = *hit;
-      const auto bouncedRay = bounceRay(ray, location, normal);
-      const auto bouncedRayColor = castRay(bouncedRay, bouncesLeft - 1);
-      return (bouncedRayColor * 0.5);
+  auto closestHit = std::optional<Hit>{};
+  auto updateClosestHit = [&closestHit](const std::optional<Hit> &hit) {
+    if (hit.has_value()) {
+      if (!closestHit || hit->distance < closestHit->distance) {
+        closestHit = hit;
+      }
     }
+  };
+
+  for (const auto &sphere : SPHERES) {
+    updateClosestHit(getHit(ray, sphere));
+  }
+  for (const auto &plane : PLANES) {
+    updateClosestHit(getHit(ray, plane));
+  }
+
+  if (closestHit.has_value()) {
+    const auto &[location, normal, distance] = *closestHit;
+    const auto bouncedRay = bounceRay(ray, location, normal);
+    const auto bouncedRayColor = castRay(bouncedRay, bouncesLeft - 1);
+    return (bouncedRayColor * 0.85);
   }
 
   return defaultColor;
@@ -145,7 +187,6 @@ void renderScene(cv::Mat &frame) {
 
   for (auto row = 0; row < height; ++row) {
     for (auto col = 0; col < width; ++col) {
-
       auto planeZ = std::lerp(0.7f, -0.7f, (row + 0.5f) / height);
       auto planeX = std::lerp(-0.7f, 0.7f, (col + 0.5f) / width);
       auto ray = Ray{{0, 0, 0}, {planeX, 1.0, planeZ}};
@@ -160,7 +201,6 @@ int main(int args_count, char *args_vals[]) {
   (void)args_vals;
 
   auto window = WindowWithBuffer("raytracer");
-  ;
 
   while (true) {
     std::cout << "Rendering the next frame..." << std::endl;
