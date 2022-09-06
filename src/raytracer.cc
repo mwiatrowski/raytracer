@@ -12,26 +12,22 @@
 #include <opencv2/core.hpp>
 #include <opencv2/highgui.hpp>
 
-constexpr auto WINDOW_SIZE = 1200;
+constexpr auto WINDOW_SIZE = 800;
 
-class WindowWithBuffer {
+class Window {
   std::string name_;
-  cv::Mat frame_;
 
 public:
-  WindowWithBuffer(std::string name) : name_(std::move(name)) {
-    frame_ = cv::Mat::zeros(cv::Size{WINDOW_SIZE, WINDOW_SIZE}, CV_8UC3);
+  Window(std::string name) : name_(std::move(name)) {
     cv::namedWindow(name_, cv::WINDOW_AUTOSIZE);
   }
 
-  ~WindowWithBuffer() { cv::destroyWindow(name_); }
+  ~Window() { cv::destroyWindow(name_); }
 
-  int showAndGetKey() {
-    cv::imshow(name_, frame_);
+  int showAndGetKey(cv::Mat &frame) {
+    cv::imshow(name_, frame);
     return cv::waitKey(20);
   }
-
-  cv::Mat &frame() { return frame_; }
 };
 
 using Point = Eigen::Vector3f;
@@ -185,12 +181,14 @@ const auto SPHERES = std::array{
     std::make_pair(Sphere{Point{-0.5, 7.0, 0.0}, 1.3f}, MATERIAL_DIFFUSE),
     std::make_pair(Sphere{Point{2.5, 7.0, 0.0}, 1.3f}, MATERIAL_MIRROR),
     std::make_pair(Sphere{Point{0.0, 7.0, 3.0}, 1.3f}, MATERIAL_MIRROR),
-    std::make_pair(Sphere{Point{-2.0, 6.0, -2.0}, 1.3f}, MATERIAL_MIRROR)};
+    std::make_pair(Sphere{Point{-2.0, 6.0, -2.0}, 1.3f}, MATERIAL_MIRROR),
+    std::make_pair(Sphere{Point{7.0, 15.0, -7.0}, 10.f}, MATERIAL_DIFFUSE),
+    std::make_pair(Sphere{Point{-15.0, 30.0, -15.0}, 20.f}, MATERIAL_DIFFUSE)};
 
 constexpr auto MAX_BOUNCES = 10;
 
-cv::Vec3b castRay(Ray ray, int bouncesLeft = MAX_BOUNCES) {
-  const auto defaultColor = cv::Vec3b{255, 255, 255};
+cv::Vec3f castRay(Ray ray, int bouncesLeft = MAX_BOUNCES) {
+  const auto defaultColor = cv::Vec3f{1.0, 1.0, 1.0};
 
   if (bouncesLeft <= 0) {
     return defaultColor;
@@ -236,33 +234,55 @@ cv::Vec3b castRay(Ray ray, int bouncesLeft = MAX_BOUNCES) {
   return defaultColor;
 }
 
-void renderScene(cv::Mat &frame) {
-  auto width = frame.cols;
-  auto height = frame.rows;
+void renderScene(cv::Mat &frameBuffer) {
+  auto width = frameBuffer.cols;
+  auto height = frameBuffer.rows;
 
   for (auto row = 0; row < height; ++row) {
     for (auto col = 0; col < width; ++col) {
       auto planeZ = std::lerp(0.7f, -0.7f, (row + 0.5f) / height);
       auto planeX = std::lerp(-0.7f, 0.7f, (col + 0.5f) / width);
       auto ray = Ray{{0, 0, 0}, {planeX, 1.0, planeZ}};
-
-      frame.at<cv::Vec3b>(row, col) = castRay(ray);
+      frameBuffer.at<cv::Vec3f>(row, col) = castRay(ray);
     }
   }
 }
 
-int main(int args_count, char *args_vals[]) {
-  (void)args_count;
-  (void)args_vals;
+class ImageAccumulator {
+  cv::Mat accumulator_;
+  int samplesCount_ = 0;
 
-  auto window = WindowWithBuffer("raytracer");
+public:
+  void accumulate(cv::Mat const &frameBuffer) {
+    accumulator_.create(frameBuffer.size(), frameBuffer.type());
+    accumulator_ += frameBuffer;
+    samplesCount_ += 1;
+  }
+
+  void convertToIntegral(cv::Mat &renderTarget) const {
+    accumulator_.convertTo(renderTarget, CV_8U, 255.0 / samplesCount_, 0.0);
+  }
+};
+
+int main(int argc, char *argv[]) {
+  (void)argc;
+  (void)argv;
+
+  cv::Mat frame = cv::Mat::zeros(cv::Size{WINDOW_SIZE, WINDOW_SIZE}, CV_8UC3);
+  auto window = Window("raytracer");
+
+  cv::Mat frameBuffer =
+      cv::Mat::zeros(cv::Size{WINDOW_SIZE, WINDOW_SIZE}, CV_32FC3);
+  auto accumulator = ImageAccumulator{};
 
   while (true) {
     std::cout << "Rendering the next frame..." << std::endl;
 
-    renderScene(window.frame());
+    renderScene(frameBuffer);
+    accumulator.accumulate(frameBuffer);
+    accumulator.convertToIntegral(frame);
 
-    if (window.showAndGetKey() == 27) {
+    if (window.showAndGetKey(frame) == 27) {
       break;
     }
   }
