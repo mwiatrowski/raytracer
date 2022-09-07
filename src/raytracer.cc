@@ -1,11 +1,14 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <condition_variable>
 #include <iostream>
 #include <limits>
 #include <optional>
+#include <queue>
 #include <random>
 #include <string>
+#include <thread>
 #include <tuple>
 
 #include <Eigen/Geometry>
@@ -26,7 +29,7 @@ public:
 
   int showAndGetKey(cv::Mat &frame) {
     cv::imshow(name_, frame);
-    return cv::waitKey(20);
+    return cv::waitKey(10);
   }
 };
 
@@ -260,30 +263,96 @@ public:
   }
 
   void convertToIntegral(cv::Mat &renderTarget) const {
+    if (samplesCount_ == 0) {
+      return;
+    }
     accumulator_.convertTo(renderTarget, CV_8U, 255.0 / samplesCount_, 0.0);
   }
 };
+
+template <typename T> class SynchronizedQueue {
+  std::queue<T> queue_;
+  std::mutex mutex_;
+  std::condition_variable waitable_;
+
+public:
+  void push(T val) {
+    auto lock = std::unique_lock{mutex_};
+    queue_.push(std::move(val));
+    waitable_.notify_one();
+  }
+
+  T popBlocking() {
+    T value;
+    {
+      auto lock = std::unique_lock{mutex_};
+      waitable_.wait(lock, [this] { return !queue_.empty(); });
+      value = std::move(queue_.front());
+      queue_.pop();
+    }
+    waitable_.notify_one();
+    return value;
+  }
+
+  std::optional<T> tryPop() {
+    auto lock = std::unique_lock{mutex_};
+    if (queue_.empty()) {
+      return {};
+    }
+    auto value = std::move(queue_.front());
+    queue_.pop();
+    return value;
+  }
+};
+
+void raytracerLoop(SynchronizedQueue<cv::Mat> &source,
+                   SynchronizedQueue<cv::Mat> &sink) {
+  while (true) {
+    auto frameBuffer = std::move(source.popBlocking());
+
+    std::cout << "Thread " << std::this_thread::get_id()
+              << " is rendering the next frame" << std::endl;
+
+    renderScene(frameBuffer);
+    sink.push(std::move(frameBuffer));
+  }
+}
 
 int main(int argc, char *argv[]) {
   (void)argc;
   (void)argv;
 
-  cv::Mat frame = cv::Mat::zeros(cv::Size{WINDOW_SIZE, WINDOW_SIZE}, CV_8UC3);
-  auto window = Window("raytracer");
+  auto workerThreads = std::vector<std::thread>{};
+  auto unusedFrames = SynchronizedQueue<cv::Mat>{};
+  auto renderedFrames = SynchronizedQueue<cv::Mat>{};
 
-  cv::Mat frameBuffer =
-      cv::Mat::zeros(cv::Size{WINDOW_SIZE, WINDOW_SIZE}, CV_32FC3);
+  const auto numWorkerThreads = std::thread::hardware_concurrency();
+  for (size_t i = 1; i <= numWorkerThreads; ++i) {
+    cv::Mat frameBuffer =
+        cv::Mat::zeros(cv::Size{WINDOW_SIZE, WINDOW_SIZE}, CV_32FC3);
+    unusedFrames.push(std::move(frameBuffer));
+
+    workerThreads.emplace_back(
+        [&] { raytracerLoop(unusedFrames, renderedFrames); });
+  }
+
+  cv::Mat renderTarget =
+      cv::Mat::zeros(cv::Size{WINDOW_SIZE, WINDOW_SIZE}, CV_8UC3);
+  auto window = Window("raytracer");
   auto accumulator = ImageAccumulator{};
 
   while (true) {
-    std::cout << "Rendering the next frame..." << std::endl;
+    while (const auto frameBuffer = renderedFrames.tryPop()) {
+      std::cout << "UI thread got a new image" << std::endl;
+      accumulator.accumulate(*frameBuffer);
+      unusedFrames.push(std::move(*frameBuffer));
+    }
 
-    renderScene(frameBuffer);
-    accumulator.accumulate(frameBuffer);
-    accumulator.convertToIntegral(frame);
-
-    if (window.showAndGetKey(frame) == 27) {
+    accumulator.convertToIntegral(renderTarget);
+    if (window.showAndGetKey(renderTarget) == 27) {
       break;
     }
   }
+
+  // TODO: Properly inform worker threads that they should exit.
 }
