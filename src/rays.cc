@@ -21,21 +21,26 @@ struct Sphere {
 
 struct Material {
   bool diffuse;
+  Vector color;
 };
 
-constexpr auto MATERIAL_DIFFUSE = Material{.diffuse = true};
-constexpr auto MATERIAL_MIRROR = Material{.diffuse = false};
-
 const auto PLANES = std::array{
-    std::make_pair(Plane{{0, 0, -3}, Normal{{0, 1, 10}}}, MATERIAL_DIFFUSE)};
+    std::make_pair(Plane{{0, 0, -3}, Normal{{0, 1, 10}}},
+                   Material{.diffuse = true, .color = {0.9, 0.9, 0.9}})};
 
 const auto SPHERES = std::array{
-    std::make_pair(Sphere{Point{-0.5, 7.0, 0.0}, 1.3f}, MATERIAL_DIFFUSE),
-    std::make_pair(Sphere{Point{2.5, 7.0, 0.0}, 1.3f}, MATERIAL_MIRROR),
-    std::make_pair(Sphere{Point{0.0, 7.0, 3.0}, 1.3f}, MATERIAL_MIRROR),
-    std::make_pair(Sphere{Point{-2.0, 6.0, -2.0}, 1.3f}, MATERIAL_MIRROR),
-    std::make_pair(Sphere{Point{7.0, 15.0, -7.0}, 10.f}, MATERIAL_DIFFUSE),
-    std::make_pair(Sphere{Point{-15.0, 30.0, -15.0}, 20.f}, MATERIAL_DIFFUSE)};
+    std::make_pair(Sphere{Point{-0.5, 7.0, 0.0}, 1.3f},
+                   Material{.diffuse = true, .color = {0.9, 0.7, 0.7}}),
+    std::make_pair(Sphere{Point{2.5, 7.0, 0.0}, 1.3f},
+                   Material{.diffuse = false, .color = {0.95, 0.95, 0.75}}),
+    std::make_pair(Sphere{Point{0.0, 7.0, 3.0}, 1.3f},
+                   Material{.diffuse = false, .color = {0.95, 0.75, 0.95}}),
+    std::make_pair(Sphere{Point{-2.0, 6.0, -2.0}, 1.3f},
+                   Material{.diffuse = false, .color = {0.75, 0.95, 0.95}}),
+    std::make_pair(Sphere{Point{7.0, 15.0, -7.0}, 10.f},
+                   Material{.diffuse = true, .color = {0.7, 0.9, 0.7}}),
+    std::make_pair(Sphere{Point{-15.0, 30.0, -15.0}, 20.f},
+                   Material{.diffuse = true, .color = {0.7, 0.7, 0.9}})};
 
 Vector randomPointOnUnitSphere() {
   static auto randomDevice = std::random_device{};
@@ -119,11 +124,9 @@ std::optional<Hit> getHit(const Ray &ray, const Sphere &sphere) {
 
 } // namespace
 
-cv::Vec3f castRay(Ray ray, int bouncesLeft) {
-  const auto defaultColor = cv::Vec3f{1.0, 1.0, 1.0};
-
+Vector castRay(Ray ray, int bouncesLeft) {
   if (bouncesLeft <= 0) {
-    return defaultColor;
+    return {0.0, 0.0, 0.0};
   }
 
   struct HitExt {
@@ -160,8 +163,8 @@ cv::Vec3f castRay(Ray ray, int bouncesLeft) {
     const auto &[location, normal] = hit;
     const auto bouncedRay = bounceRay(ray, location, normal, material.diffuse);
     const auto bouncedRayColor = castRay(bouncedRay, bouncesLeft - 1);
-    return (bouncedRayColor * 0.85);
+    return bouncedRayColor.cwiseProduct(material.color);
   }
 
-  return defaultColor;
+  return {1.0, 1.0, 1.0};
 }

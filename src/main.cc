@@ -19,7 +19,9 @@ void renderScene(cv::Mat &frameBuffer) {
       auto planeZ = std::lerp(0.7f, -0.7f, (row + 0.5f) / height);
       auto planeX = std::lerp(-0.7f, 0.7f, (col + 0.5f) / width);
       auto ray = Ray{{0, 0, 0}, {planeX, 1.0, planeZ}};
-      frameBuffer.at<cv::Vec3f>(row, col) = castRay(ray, MAX_RAY_BOUNCES);
+      const auto color = castRay(ray, MAX_RAY_BOUNCES);
+      frameBuffer.at<cv::Vec3f>(row, col) =
+          cv::Vec3f{color[0], color[1], color[2]};
     }
   }
 }

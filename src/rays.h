@@ -9,4 +9,4 @@ struct Ray {
   Vector direction; // TODO: Normal?
 };
 
-cv::Vec3f castRay(Ray ray, int bouncesLeft);
+Vector castRay(Ray ray, int bouncesLeft);
