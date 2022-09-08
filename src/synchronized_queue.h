@@ -18,14 +18,10 @@ public:
   }
 
   T popBlocking() {
-    T value;
-    {
-      auto lock = std::unique_lock{mutex_};
-      waitable_.wait(lock, [this] { return !queue_.empty(); });
-      value = std::move(queue_.front());
-      queue_.pop();
-    }
-    waitable_.notify_one();
+    auto lock = std::unique_lock{mutex_};
+    waitable_.wait(lock, [this] { return !queue_.empty(); });
+    auto value = std::move(queue_.front());
+    queue_.pop();
     return value;
   }
 
@@ -37,5 +33,11 @@ public:
     auto value = std::move(queue_.front());
     queue_.pop();
     return value;
+  }
+
+  void flush() {
+    auto lock = std::unique_lock{mutex_};
+    auto emptyQueue = std::queue<T>{};
+    std::swap(queue_, emptyQueue);
   }
 };
