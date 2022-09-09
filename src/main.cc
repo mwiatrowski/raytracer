@@ -77,6 +77,7 @@ public:
       return;
     }
     accumulator_.convertTo(renderTarget, CV_8U, 255.0 / samplesCount_, 0.0);
+    cv::cvtColor(renderTarget, renderTarget, cv::COLOR_BGR2RGB);
   }
 };
 
