@@ -10,7 +10,7 @@
 #include "synchronized_queue.h"
 #include "window.h"
 
-constexpr auto WINDOW_SIZE = 800;
+constexpr auto WINDOW_SIZE = 1000;
 constexpr auto MAX_RAY_BOUNCES = 10;
 
 void renderScene(cv::Mat &frameBuffer, cv::Vec2f subpixelDisplacement) {
